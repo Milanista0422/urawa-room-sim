@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>AURA Water Server — 360°パノラマシミュレーター</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#14171a;font-family:'Hiragino Sans','Yu Gothic',sans-serif;}
+#c{display:block;width:100%;height:100%;cursor:grab;touch-action:none;}
+#p{position:fixed;top:12px;left:12px;right:12px;max-width:430px;background:rgba(255,255,255,.9);
+backdrop-filter:blur(10px);border-radius:14px;padding:11px 14px;box-shadow:0 4px 22px rgba(0,0,0,.35);z-index:5;}
+#p h1{font-size:13px;margin:0 0 3px;color:#2f2f2e;}
+#p .sub{font-size:10.5px;color:#8a8580;margin-bottom:8px;line-height:1.55;}
+.bt{display:flex;flex-wrap:wrap;gap:5px;}
+.bt button{border:1px solid #cfccc6;background:#fff;color:#44443f;border-radius:8px;padding:6px 10px;
+font-size:11.5px;cursor:pointer;}
+.bt button.on{background:#33332f;color:#fff;border-color:#33332f;}
+#hint{font-size:10px;color:#8a8580;margin-top:7px;}
+#ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#cfcbc4;font-size:13px;z-index:8;background:#14171a;}
+@media(max-width:820px){#p{max-width:none;}#p h1{font-size:12px;}}
+</style></head><body>
+<div id="ld">読み込み中…</div>
+<div id="p"><h1>AURA Water Server — 360°シミュレーター</h1>
+<div class="sub">テレビとソファの間に立った視点。黒のTVスタンド＋黒デスクに変更済み。カラーを切り替えて比較できます（H1105×W300×D334mm）</div>
+<div class="bt">
+<button data-k="none">なし(現状)</button>
+<button data-k="blueblack" class="on">ブルーブラック</button>
+<button data-k="black">ブラック</button>
+<button data-k="warmgrey">ウォームグレーメタリック</button>
+<button data-k="white">ホワイト</button>
+</div>
+<div id="hint">ドラッグ:見回す / ホイール・ピンチ:ズーム（AI生成イメージ）</div></div>
+<canvas id="c"></canvas>
+<div style="display:none">
+<img id="im_none" crossorigin="anonymous" src="https://d8j0ntlcm91z4.cloudfront.net/user_3GBBZaPls1YIBn3IFtfNPEAnEIW/hf_20260825_111834_c672f138-c5b2-4b43-a820-835a19d62a1b.png">
+<img id="im_blueblack" crossorigin="anonymous" src="https://d8j0ntlcm91z4.cloudfront.net/user_3GBBZaPls1YIBn3IFtfNPEAnEIW/hf_20260825_115414_50c94720-1235-4fe1-b975-b7b65388855c.png">
+<img id="im_black" crossorigin="anonymous" src="https://d8j0ntlcm91z4.cloudfront.net/user_3GBBZaPls1YIBn3IFtfNPEAnEIW/hf_20260825_112049_46f307e2-1345-45c6-99ef-b7d66b48c4e8.png">
+<img id="im_warmgrey" crossorigin="anonymous" src="https://d8j0ntlcm91z4.cloudfront.net/user_3GBBZaPls1YIBn3IFtfNPEAnEIW/hf_20260825_112049_1b40e6ee-25fd-4da0-bd67-8d7b2df872b6.png">
+<img id="im_white" crossorigin="anonymous" src="https://d8j0ntlcm91z4.cloudfront.net/user_3GBBZaPls1YIBn3IFtfNPEAnEIW/hf_20260825_112049_70f5ce61-afdf-47ae-b845-40dea8996220.png">
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+var renderer=new THREE.WebGLRenderer({canvas:document.getElementById('c'),antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth,window.innerHeight);
+var scene=new THREE.Scene();scene.background=new THREE.Color(0x14171a);
+var camera=new THREE.PerspectiveCamera(84,window.innerWidth/window.innerHeight,0.1,100);
+var HARC=210*Math.PI/180, VARC=89*Math.PI/180;
+var geo=new THREE.SphereGeometry(30,90,54,-Math.PI/2-HARC/2,HARC,(Math.PI-VARC)/2,VARC);
+var mat=new THREE.MeshBasicMaterial({side:THREE.BackSide});
+var sph=new THREE.Mesh(geo,mat);sph.scale.x=-1;sph.rotation.y=0;scene.add(sph);
+var texes={};
+function setColor(k){
+ if(!texes[k]){var img=document.getElementById('im_'+k);
+  var t=new THREE.Texture(img);t.needsUpdate=true;t.minFilter=THREE.LinearFilter;texes[k]=t;}
+ mat.map=texes[k];mat.needsUpdate=true;}
+var bs=document.querySelectorAll('.bt button');
+for(var i=0;i<bs.length;i++){bs[i].onclick=function(){
+ for(var j=0;j<bs.length;j++)bs[j].classList.remove('on');
+ this.classList.add('on');setColor(this.getAttribute('data-k'));};}
+var yaw=0,pitch=0,drag=false,px=0,py=0,fov=84,lastPinch=0;
+var ptrs={},np=0;
+function pinchDist(){var a=[];for(var k in ptrs)a.push(ptrs[k]);
+ return Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);}
+var YMAX=50*Math.PI/180,PMAX=0.22;
+var cv=renderer.domElement;
+cv.addEventListener('pointerdown',function(e){
+ if(!ptrs[e.pointerId])np++;ptrs[e.pointerId]={x:e.clientX,y:e.clientY};
+ if(np===2){lastPinch=pinchDist();drag=false;return;}
+ drag=true;px=e.clientX;py=e.clientY;cv.style.cursor='grabbing';});
+function up(e){if(ptrs[e.pointerId]){delete ptrs[e.pointerId];np--;}
+ lastPinch=0;drag=false;cv.style.cursor='grab';}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+cv.addEventListener('pointermove',function(e){
+ if(ptrs[e.pointerId])ptrs[e.pointerId]={x:e.clientX,y:e.clientY};
+ if(np===2){var d=pinchDist();
+  if(lastPinch>0){fov=Math.max(34,Math.min(92,fov/(d/lastPinch)));camera.fov=fov;camera.updateProjectionMatrix();}
+  lastPinch=d;return;}
+ if(!drag)return;
+ yaw=Math.max(-YMAX,Math.min(YMAX,yaw-(e.clientX-px)*0.0030));
+ pitch=Math.max(-PMAX,Math.min(PMAX,pitch+(e.clientY-py)*0.0022));
+ px=e.clientX;py=e.clientY;});
+cv.addEventListener('wheel',function(e){e.preventDefault();
+ fov=Math.max(34,Math.min(92,fov+e.deltaY*0.04));camera.fov=fov;camera.updateProjectionMatrix();},{passive:false});
+function loop(){requestAnimationFrame(loop);
+ camera.lookAt(Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch));
+ renderer.render(scene,camera);}
+function start(){setColor('blueblack');document.getElementById('ld').style.display='none';loop();}
+var ims=document.querySelectorAll('img[id^=im_]'),n=0;
+for(var q=0;q<ims.length;q++){(function(im){
+ if(im.complete&&im.naturalWidth){if(++n===ims.length)start();}
+ else{im.onload=function(){if(++n===ims.length)start();};
+      im.onerror=function(){if(++n===ims.length)start();};}})(ims[q]);}
+window.addEventListener('resize',function(){
+ camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();
+ renderer.setSize(window.innerWidth,window.innerHeight);});
+</script></body></html>
